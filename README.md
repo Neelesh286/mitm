@@ -58,15 +58,15 @@ Captured Secret:
 
 CTF{secret-fSkqpILT51TM3B6OQZ9x}
 
-## 4. Bonus Task: Evading Intrusion Detection
+## 5. Bonus Task: Evading Intrusion Detection
 The lab scenario introduced a hypothetical Intrusion Detection System (IDS) capable of flagging suspicious ARP Replies (specifically Gratuitous ARP packets). [cite_start]The objective was to maintain the Man-in-the-Middle position while bypassing this detection mechanism [cite: 95-97].
 
-### 4.1 Strategy: Request-Based Spoofing
+### 5.1 Strategy: Request-Based Spoofing
 Standard IDSs often filter unsolicited ARP Replies because they are a common signature of spoofing attacks. [cite_start]However, the ARP protocol dictates that when a device receives an **ARP Request** (Opcode `0x0001`), it must update its cache with the Sender's IP and MAC address to facilitate a reply[cite: 100].
 
 By framing the spoofed packets as "questions" (Requests) rather than "answers" (Replies), the attack mimics legitimate network resolution traffic (e.g., "Who has Alice?"), forcing the victims to update their ARP tables without triggering the IDS rule against gratuitous replies.
 
-### 4.2 Implementation
+### 5.2 Implementation
 I modified the attack to use ARP Requests by changing the **Opcode** field in the raw Ethernet frames.
 
 **Payload Modifications:**
@@ -95,5 +95,5 @@ while true; do
     sleep 2
 done
 ```
-4.3 Results & Mitigation
+5.3 Results & Mitigation
 Result: The modified attack successfully poisoned the targets' ARP caches without triggering the hypothetical IDS. I verified this by capturing the traffic again using tcpdump and successfully retrieving the flag: CTF{secret-fSkqpILT51TM3B6OQZ9x}.
